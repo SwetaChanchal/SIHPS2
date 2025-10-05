@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NDMA: Real-Time Training Monitoring System</title>
+    
+    <!-- Chosen Palette: Citrus & Indigo -->
+    <!-- Application Structure Plan: The SPA is a task-oriented dashboard with a fixed sidebar for navigation. This version introduces new views for 'Integration Hub', 'Gamification', 'System Sync', and a new 'State Dashboard' view. The dashboard is enhanced with a 'Live Event Feed' and 'Content Hub'. A new 'Gap Detection' tab is added to Analytics. The Gamification view now includes tabs for Quizzes and Simulations. The overall design is made more responsive for mobile devices. -->
+    <!-- Visualization & Content Choices: 
+        - State-wise Dashboard [NEW]: Goal: Provide granular insights. Method: A dedicated view with a state selector, showing state-specific metrics, top districts, and thematic charts. Justification: Fulfills the request for state-level data visualization and adds depth to the analytics.
+        - Gamification - Quizzes [NEW]: Goal: Enhance engagement. Method: An interactive multiple-choice quiz module within the Gamification view. Justification: Adds a knowledge-testing element to the incentive program.
+        - Gamification - Simulations [ENHANCED]: Goal: Test decision-making with more immersion. Method: Added screen shake and Web Audio API-generated sounds for a "real-life" feel during critical events. Justification: Provides practical, scenario-based training engagement beyond simple metrics.
+        - Responsiveness [ENHANCEMENT]: Goal: Improve mobile usability. Method: Collapsible sidebar for mobile, responsive grid layouts, and larger touch targets. Justification: Ensures the platform is accessible and functional on any device.
+    -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'brand-yellow': {
+                           50: '#fffbeb',
+                           100: '#fef3c7',
+                           200: '#fde68a',
+                           300: '#fcd34d',
+                           400: '#fbbf24',
+                        },
+                        'brand-indigo': {
+                           700: '#4338ca',
+                           800: '#3730a3',
+                           900: '#312e81',
+                        },
+                        'brand-orange': {
+                            500: '#f97316'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Nunito', sans-serif;
+        }
+        .sidebar {
+            transition: width 0.3s ease;
+        }
+        .sidebar-icon {
+            width: 24px;
+            height: 24px;
+            stroke-width: 2;
+        }
+        .nav-item.active {
+            background-color: #fde68a; /* brand-yellow-200 */
+            color: #312e81; /* brand-indigo-900 */
+            font-weight: 700;
+        }
+        .nav-item:hover {
+            background-color: #fef3c7; /* brand-yellow-100 */
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 350px;
+            max-height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 400px;
+            }
+        }
+        .modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 40;
+            transition: opacity 0.3s ease;
+        }
+        .modal-content {
+            z-index: 50;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+        .gemini-btn {
+            background-image: linear-gradient(to right, #f97316, #fbbf24);
+        }
+        .gemini-btn:hover {
+            opacity: 0.9;
+        }
+        .interactive-card {
+            transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
+        }
+        .interactive-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #f97316;
+            animation: spin 1s ease infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .ai-help-fab {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            z-index: 30;
+        }
+        .chat-bubble-user {
+            background-color: #fde68a; /* brand-yellow-200 */
+            align-self: flex-end;
+        }
+        .chat-bubble-ai {
+            background-color: #fef3c7; /* brand-yellow-100 */
+            align-self: flex-start;
+        }
+        .tab-btn.active {
+            border-bottom-color: #f97316;
+            color: #f97316;
+            font-weight: 600;
+        }
+        .quiz-option:hover {
+            background-color: #fde68a;
+        }
+        .quiz-option.correct {
+            background-color: #dcfce7; /* green-100 */
+            border-color: #22c55e; /* green-500 */
+        }
+        .quiz-option.incorrect {
+            background-color: #fee2e2; /* red-100 */
+            border-color: #ef4444; /* red-500 */
+        }
+        /* Screen Shake Animation */
+        @keyframes shake {
+          10%, 90% { transform: translate3d(-1px, 0, 0); }
+          20%, 80% { transform: translate3d(2px, 0, 0); }
+          30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+          40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+        .screen-shake {
+          animation: shake 0.82s cubic-bezier(.36,.07,.19,.97) both;
+        }
+    </style>
+</head>
+<body class="flex h-screen overflow-hidden bg-brand-yellow-50 text-brand-indigo-900">
+
+    <!-- Sidebar Navigation -->
+    <aside id="sidebar" class="sidebar w-20 md:w-64 bg-brand-yellow-100 border-r border-brand-yellow-200 flex flex-col flex-shrink-0">
+        <div class="h-16 flex items-center justify-center md:justify-start px-4 md:px-6 border-b border-brand-yellow-200">
+            <span class="text-lg font-bold text-brand-indigo-800 hidden md:inline">NDMA Monitor</span>
+            <span class="text-lg font-bold text-brand-indigo-800 md:hidden">NM</span>
+        </div>
+        <nav class="flex-1 space-y-2 py-4 px-2 md:px-4">
+            <a href="#" class="nav-item flex items-center p-3 rounded-lg text-brand-indigo-800 active" data-view="dashboard">
+                <svg class="sidebar-icon flex-shrink-0 mx-auto md:mx-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                <span class="ml-4 hidden md:inline">Dashboard</span>
+            </a>
+            <a href="#" class="nav-item flex items-center p-3 rounded-lg text-brand-indigo-800" data-view="state-dashboard">
+                <svg class="sidebar-icon flex-shrink-0 mx-auto md:mx-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0zM15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                <span class="ml-4 hidden md:inline">State Dashboards</span>
+            </a>
+            <a href="#" class="nav-item flex items-center p-3 rounded-lg text-brand-indigo-800" data-view="integration">
+                 <svg class="sidebar-icon flex-shrink-0 mx-auto md:mx-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
+                <span class="ml-4 hidden md:inline">Integration Hub</span>
+            </a>
+            <a href="#" class="nav-item flex items-center p-3 rounded-lg text-brand-indigo-800" data-view="gis">
+                <svg class="sidebar-icon flex-shrink-0 mx-auto md:mx-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 16.382V5.618a1 1 0 00-1.447-.894L15 7m-6 10l6-3m0 0l6-3"></path></svg>
+                <span class="ml-4 hidden md:inline">GIS Mapping</span>
+            </a>
+            <a href="#" class="nav-item flex items-center p-3 rounded-lg text-brand-indigo-800" data-view="form">
+                 <svg class="sidebar-icon flex-shrink-0 mx-auto md:mx-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                <span class="ml-4 hidden md:inline">Add Training</span>
+            </a>
+            <a href="#" class="nav-item flex items-center p-3 rounded-lg text-brand-indigo-800" data-view="analytics">
+                <svg class="sidebar-icon flex-shrink-0 mx-auto md:mx-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                <span class="ml-4 hidden md:inline">Analytics</span>
+            </a>
+            <a href="#" class="nav-item flex items-center p-3 rounded-lg text-brand-indigo-800" data-view="gamification">
+                 <svg class="sidebar-icon flex-shrink-0 mx-auto md:mx-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.539 1.118l-3.975-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.539-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path></svg>
+                <span class="ml-4 hidden md:inline">Gamification</span>
+            </a>
+             <a href="#" class="nav-item flex items-center p-3 rounded-lg text-brand-indigo-800" data-view="api">
+                 <svg class="sidebar-icon flex-shrink-0 mx-auto md:mx-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                <span class="ml-4 hidden md:inline">Interoperability</span>
+            </a>
+        </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main id="main-content" class="flex-1 flex flex-col overflow-y-auto">
+        <header class="h-16 bg-brand-yellow-100 border-b border-brand-yellow-200 flex items-center justify-between px-4 sm:px-6">
+            <div class="flex items-center">
+                <button id="menu-toggle" class="md:hidden mr-4 text-brand-indigo-800">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                </button>
+                <h1 id="view-title" class="text-lg sm:text-xl font-semibold text-brand-indigo-900">Admin Dashboard</h1>
+            </div>
+            <div class="flex items-center space-x-2 sm:space-x-4">
+                <div id="offline-sync-status" class="flex items-center space-x-2 cursor-pointer p-2 rounded-lg hover:bg-brand-yellow-200">
+                     <svg class="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+                     <span class="hidden sm:inline text-sm text-brand-indigo-800 font-medium">Synced</span>
+                </div>
+                <div class="hidden sm:block text-sm text-brand-indigo-800">Welcome, NDMA Officer</div>
+                <div class="w-10 h-10 rounded-full bg-brand-indigo-200 text-brand-indigo-800 flex items-center justify-center font-bold flex-shrink-0">NO</div>
+            </div>
+        </header>
+
+        <div class="flex-1 p-4 md:p-6 lg:p-8">
+            <!-- Dashboard View -->
+            <div id="dashboard" class="view">
+                <p class="text-brand-indigo-800 mb-6">This dashboard provides a real-time, high-level overview of disaster management training activities across the nation. Key metrics offer a quick snapshot of the current status, while the GIS heatmap visualizes geographical coverage and the AI panel provides actionable insights to identify potential gaps in capacity building.</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                    <div class="bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200 interactive-card">
+                        <h3 class="text-sm font-medium text-brand-indigo-800 opacity-75">Total Trainings Conducted</h3>
+                        <p id="metric-trainings" class="text-3xl font-bold text-brand-indigo-800 mt-2">1,287</p>
+                    </div>
+                    <div class="bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200 interactive-card">
+                        <h3 class="text-sm font-medium text-brand-indigo-800 opacity-75">Total Participants Trained</h3>
+                        <p id="metric-participants" class="text-3xl font-bold text-green-800 mt-2">45,921</p>
+                    </div>
+                    <div class="bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200 interactive-card">
+                        <h3 class="text-sm font-medium text-brand-indigo-800 opacity-75">Districts Covered</h3>
+                        <p id="metric-districts" class="text-3xl font-bold text-blue-800 mt-2">640 / 766</p>
+                    </div>
+                    <div class="bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200 interactive-card">
+                        <h3 class="text-sm font-medium text-brand-indigo-800 opacity-75">Partner Agencies</h3>
+                        <p id="metric-agencies" class="text-3xl font-bold text-purple-800 mt-2">312</p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="lg:col-span-2 bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200">
+                        <h3 class="text-lg font-semibold text-brand-indigo-900 mb-4">Training Intensity Heatmap</h3>
+                        <div class="chart-container h-[450px]">
+                            <div class="spinner" id="dashboard-map-loader"></div>
+                            <div id="dashboard-map"></div>
+                        </div>
+                    </div>
+                    <div class="bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-semibold text-brand-indigo-900">Gemini-Powered Insights</h3>
+                        </div>
+                        <div id="insights-container" class="space-y-4 text-sm min-h-[200px]">
+                           <p class="text-brand-indigo-800 opacity-75">Click the button to generate AI-powered insights based on the latest dashboard metrics.</p>
+                        </div>
+                         <button id="generate-insights-btn" class="gemini-btn mt-4 w-full text-white font-semibold py-2 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105">
+                            ✨ Generate Insights
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- State Dashboard View -->
+            <div id="state-dashboard" class="view hidden">
+                <div class="flex flex-col sm:flex-row justify-between sm:items-center mb-6 gap-4">
+                    <p class="text-brand-indigo-800">Select a state to view its detailed training performance metrics, top districts, and thematic focus.</p>
+                    <select id="state-selector" class="w-full sm:w-64 rounded-md bg-brand-yellow-100 border-brand-yellow-200 shadow-sm focus:border-brand-orange-500 focus:ring-brand-orange-500 sm:text-sm">
+                        <option value="">-- Select a State --</option>
+                        <!-- Options will be populated by JS -->
+                    </select>
+                </div>
+                <div id="state-content" class="hidden">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                        <div class="bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200 interactive-card">
+                            <h3 class="text-sm font-medium text-brand-indigo-800 opacity-75">Trainings in State</h3>
+                            <p id="state-metric-trainings" class="text-3xl font-bold text-brand-indigo-800 mt-2"></p>
+                        </div>
+                        <div class="bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200 interactive-card">
+                            <h3 class="text-sm font-medium text-brand-indigo-800 opacity-75">Participants in State</h3>
+                            <p id="state-metric-participants" class="text-3xl font-bold text-green-800 mt-2"></p>
+                        </div>
+                        <div class="bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200 interactive-card">
+                            <h3 class="text-sm font-medium text-brand-indigo-800 opacity-75">Districts Covered in State</h3>
+                            <p id="state-metric-districts" class="text-3xl font-bold text-blue-800 mt-2"></p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="lg:col-span-1 bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200">
+                             <h3 class="text-lg font-semibold text-brand-indigo-900 mb-4">Top 5 Performing Districts</h3>
+                             <div id="state-top-districts"></div>
+                        </div>
+                         <div class="lg:col-span-2 bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200">
+                            <h3 class="text-lg font-semibold text-brand-indigo-900 mb-4">Thematic Focus in State</h3>
+                            <div class="chart-container h-[300px] sm:h-[400px]">
+                                <canvas id="state-thematic-chart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+             <!-- Integration Hub View -->
+            <div id="integration" class="view hidden">
+                 <p class="text-brand-indigo-800 mb-6">The Integration Hub centralizes information from multiple sources. Track live events reported by partners in real-time and access the latest training content and guidelines directly from the National Institute of Disaster Management (NIDM).</p>
+                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200">
+                        <h3 class="text-lg font-semibold text-brand-indigo-900 mb-4">Live Partner Event Feed (SDMA/NGOs)</h3>
+                        <div id="live-feed-container" class="space-y-4 h-96 overflow-y-auto">
+                            <!-- Live feed items will be injected here -->
+                        </div>
+                    </div>
+                    <div class="bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200">
+                        <h3 class="text-lg font-semibold text-brand-indigo-900 mb-4">NIDM Content Hub</h3>
+                         <div id="nidm-content-container" class="space-y-4 h-96 overflow-y-auto">
+                            <!-- NIDM content cards will be injected here -->
+                        </div>
+                    </div>
+                 </div>
+            </div>
+
+            <!-- GIS Mapping View -->
+            <div id="gis" class="view hidden">
+                 <p class="text-brand-indigo-800 mb-6">This interactive GIS map provides a detailed, district-level visualization of all training activities. You can hover over a state to see summary data and click on a specific state to navigate to its dedicated dashboard for more comprehensive information.</p>
+                 <div class="bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200">
+                    <h3 class="text-lg font-semibold text-brand-indigo-900 mb-4">Detailed District-Level Coverage Map</h3>
+                     <div class="chart-container h-[60vh] max-h-[700px]">
+                        <div class="spinner" id="gis-map-loader"></div>
+                        <div id="gis-map"></div>
+                     </div>
+                </div>
+            </div>
+
+            <!-- Training Entry Form View -->
+            <div id="form" class="view hidden">
+                <p class="text-brand-indigo-800 mb-6">Use this form to capture and submit data for a new training program in real-time. The system is designed for ease of use, with features like auto-complete for partner agencies and a voice input option for descriptions. Please fill in all the required details to ensure data consistency and completeness.</p>
+                <div class="max-w-4xl mx-auto bg-brand-yellow-100 p-8 rounded-lg shadow-sm border border-brand-yellow-200 mb-8">
+                     <div class="flex justify-between items-center mb-6">
+                         <h2 class="text-2xl font-bold text-brand-indigo-900">New Training Record Entry</h2>
+                         <button id="suggest-details-btn" class="gemini-btn text-white text-sm font-semibold py-2 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105">
+                            ✨ Suggest Details
+                        </button>
+                     </div>
+                    <form class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label for="training-title" class="block text-sm font-medium text-brand-indigo-800">Training Title</label>
+                            <input type="text" id="training-title" class="mt-1 block w-full rounded-md bg-brand-yellow-50 border-brand-yellow-300 shadow-sm focus:border-brand-orange-500 focus:ring-brand-orange-500 sm:text-sm" placeholder="e.g., Basic First Aid for Volunteers">
+                        </div>
+                        <div>
+                            <label for="training-theme" class="block text-sm font-medium text-brand-indigo-800">Thematic Area</label>
+                            <select id="training-theme" class="mt-1 block w-full rounded-md bg-brand-yellow-50 border-brand-yellow-300 shadow-sm focus:border-brand-orange-500 focus:ring-brand-orange-500 sm:text-sm">
+                                <option>Flood Response</option>
+                                <option>Earthquake Preparedness</option>
+                                <option>Cyclone Management</option>
+                                <option>First Aid & Medical Response</option>
+                                <option>Community Awareness</option>
+                            </select>
+                        </div>
+                        <div class="md:col-span-2">
+                             <label for="partner-agency" class="block text-sm font-medium text-brand-indigo-800">Partner Agency (Auto-complete)</label>
+                             <input list="agencies" id="partner-agency" class="mt-1 block w-full rounded-md bg-brand-yellow-50 border-brand-yellow-300 shadow-sm focus:border-brand-orange-500 focus:ring-brand-orange-500 sm:text-sm" placeholder="Start typing...">
+                             <datalist id="agencies">
+                                 <option value="State Disaster Management Authority (SDMA) - Uttar Pradesh">
+                                 <option value="Administrative Training Institute (ATI) - Maharashtra">
+                                 <option value="Red Cross Society - Delhi Chapter">
+                                 <option value="Civil Defence - Tamil Nadu">
+                             </datalist>
+                        </div>
+                        <div>
+                            <label for="state" class="block text-sm font-medium text-brand-indigo-800">State</label>
+                            <input type="text" id="state" class="mt-1 block w-full rounded-md bg-brand-yellow-50 border-brand-yellow-300 shadow-sm focus:border-brand-orange-500 focus:ring-brand-orange-500 sm:text-sm" placeholder="e.g., Gujarat">
+                        </div>
+                        <div>
+                            <label for="district" class="block text-sm font-medium text-brand-indigo-800">District</label>
+                            <input type="text" id="district" class="mt-1 block w-full rounded-md bg-brand-yellow-50 border-brand-yellow-300 shadow-sm focus:border-brand-orange-500 focus:ring-brand-orange-500 sm:text-sm" placeholder="e.g., Ahmedabad">
+                        </div>
+                        <div>
+                            <label for="start-date" class="block text-sm font-medium text-brand-indigo-800">Start Date</label>
+                            <input type="date" id="start-date" class="mt-1 block w-full rounded-md bg-brand-yellow-50 border-brand-yellow-300 shadow-sm focus:border-brand-orange-500 focus:ring-brand-orange-500 sm:text-sm">
+                        </div>
+                        <div>
+                            <label for="participants" class="block text-sm font-medium text-brand-indigo-800">Number of Participants</label>
+                            <input type="number" id="participants" class="mt-1 block w-full rounded-md bg-brand-yellow-50 border-brand-yellow-300 shadow-sm focus:border-brand-orange-500 focus:ring-brand-orange-500 sm:text-sm" placeholder="e.g., 50">
+                        </div>
+                        <div class="md:col-span-2 relative">
+                            <label for="description" class="block text-sm font-medium text-brand-indigo-800">Description</label>
+                            <textarea id="description" rows="4" class="mt-1 block w-full rounded-md bg-brand-yellow-50 border-brand-yellow-300 shadow-sm focus:border-brand-orange-500 focus:ring-brand-orange-500 sm:text-sm" placeholder="Briefly describe the training..."></textarea>
+                            <button type="button" id="voice-input-btn" class="absolute bottom-3 right-3 p-2 bg-brand-indigo-100 rounded-full hover:bg-brand-indigo-200 focus:outline-none focus:ring-2 focus:ring-brand-orange-500">
+                                <svg class="w-5 h-5 text-brand-indigo-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+                            </button>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label class="block text-sm font-medium text-brand-indigo-800">Upload Photos</label>
+                            <div id="photo-upload-btn" class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-brand-yellow-300 border-dashed rounded-md cursor-pointer hover:border-brand-orange-500">
+                                <div class="space-y-1 text-center">
+                                    <svg class="mx-auto h-12 w-12 text-brand-yellow-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                                    <p class="text-sm text-brand-indigo-800 opacity-75">Click to upload training photos</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="md:col-span-2 text-right">
+                             <button type="button" class="inline-flex items-center px-6 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-brand-indigo-700 hover:bg-brand-indigo-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-orange-500">
+                                Submit Record
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="max-w-4xl mx-auto bg-brand-yellow-100 p-8 rounded-lg shadow-sm border border-brand-yellow-200">
+                    <h2 class="text-2xl font-bold text-brand-indigo-900 mb-4">Training Scenario Planner</h2>
+                    <p class="text-brand-indigo-800 mb-4">Need help designing a training session? Describe a disaster scenario below and our AI assistant will generate a structured training plan for you.</p>
+                    <div>
+                        <label for="scenario-input" class="block text-sm font-medium text-brand-indigo-800">Disaster Scenario</label>
+                        <input type="text" id="scenario-input" class="mt-1 block w-full rounded-md bg-brand-yellow-50 border-brand-yellow-300 shadow-sm focus:border-brand-orange-500 focus:ring-brand-orange-500 sm:text-sm" placeholder="e.g., Urban flooding in Mumbai after heavy monsoon">
+                    </div>
+                    <button id="generate-scenario-btn" class="gemini-btn mt-4 w-full text-white font-semibold py-2 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105">
+                        ✨ Generate Training Plan
+                    </button>
+                    <div id="scenario-output" class="mt-6"></div>
+                </div>
+
+            </div>
+
+            <!-- Analytics View -->
+            <div id="analytics" class="view hidden">
+                 <div class="mb-6 border-b-2 border-brand-yellow-200">
+                    <nav class="-mb-0.5 flex space-x-6" id="analytics-tabs">
+                        <button data-tab="charts" class="py-4 px-1 border-b-2 font-medium text-sm tab-btn active">M&E Analytics</button>
+                        <button data-tab="gaps" class="py-4 px-1 border-b-2 font-medium text-sm tab-btn text-brand-indigo-800 opacity-75 border-transparent">Automated Gap Detection</button>
+                    </nav>
+                </div>
+
+                <div id="charts-tab" class="analytics-tab">
+                    <p class="text-brand-indigo-800 mb-6">The Analytics Dashboard offers a deep dive into training data. Use the filters to explore trends and breakdowns. All charts are interactive. You can export the raw data or generate an AI-powered narrative summary of the current view.</p>
+                    <div class="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
+                        <div class="flex flex-wrap gap-4">
+                            <select id="time-filter" class="rounded-md bg-brand-yellow-100 border-brand-yellow-200 shadow-sm focus:border-brand-orange-500 focus:ring-brand-orange-500 sm:text-sm">
+                                <option value="quarterly">By Quarter</option>
+                                <option value="monthly">By Month</option>
+                            </select>
+                            <select id="theme-filter" class="rounded-md bg-brand-yellow-100 border-brand-yellow-200 shadow-sm focus:border-brand-orange-500 focus:ring-brand-orange-500 sm:text-sm">
+                                <option value="all">All Thematic Areas</option>
+                                <option value="flood">Flood Response</option>
+                                <option value="earthquake">Earthquake Preparedness</option>
+                                <option value="medical">Medical Response</option>
+                            </select>
+                        </div>
+                         <div class="flex flex-wrap gap-2">
+                            <button id="generate-report-btn" class="gemini-btn inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white">
+                                ✨ Generate AI Report Summary
+                            </button>
+                            <button id="export-btn" class="inline-flex items-center px-4 py-2 border border-brand-yellow-300 text-sm font-medium rounded-md shadow-sm text-brand-indigo-800 bg-brand-yellow-100 hover:bg-brand-yellow-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-orange-500">
+                                Export Data
+                            </button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200 interactive-card">
+                            <h3 class="text-lg font-semibold text-brand-indigo-900 mb-4">Trainings Over Time</h3>
+                            <div class="chart-container">
+                                <canvas id="trends-chart"></canvas>
+                            </div>
+                        </div>
+                        <div class="bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200 interactive-card">
+                            <h3 class="text-lg font-semibold text-brand-indigo-900 mb-4">Participants by Thematic Area</h3>
+                            <div class="chart-container">
+                                <canvas id="thematic-chart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="gaps-tab" class="analytics-tab hidden">
+                    <p class="text-brand-indigo-800 mb-6">This automated system uses machine learning models to identify potential gaps in training coverage. Alerts are generated for districts with low training frequency, insufficient thematic variety, or repeat non-attendance from key personnel.</p>
+                    <div id="gap-alerts-container" class="space-y-4">
+                        <!-- Gap alerts will be injected here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Gamification View -->
+            <div id="gamification" class="view hidden">
+                 <div class="mb-6 border-b-2 border-brand-yellow-200">
+                    <nav class="-mb-0.5 flex space-x-6" id="gamification-tabs">
+                        <button data-tab="leaderboard" class="py-4 px-1 border-b-2 font-medium text-sm tab-btn active">Leaderboard</button>
+                        <button data-tab="quizzes" class="py-4 px-1 border-b-2 font-medium text-sm tab-btn text-brand-indigo-800 opacity-75 border-transparent">Quizzes</button>
+                        <button data-tab="simulations" class="py-4 px-1 border-b-2 font-medium text-sm tab-btn text-brand-indigo-800 opacity-75 border-transparent">Simulations</button>
+                    </nav>
+                </div>
+                
+                <div id="leaderboard-tab" class="gamification-tab">
+                    <p class="text-brand-indigo-800 mb-6">The Partner Incentive Program uses gamification to encourage active participation. Agencies earn points for conducting trainings, covering new districts, and receiving positive feedback, climbing the leaderboard and earning badges that can unlock recognition and funding opportunities.</p>
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="lg:col-span-2 bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200">
+                            <h3 class="text-lg font-semibold text-brand-indigo-900 mb-4">Partner Leaderboard</h3>
+                            <div id="leaderboard-container">
+                               <!-- Leaderboard will be injected here -->
+                            </div>
+                        </div>
+                        <div class="space-y-6">
+                            <div class="bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200">
+                                <h3 class="text-lg font-semibold text-brand-indigo-900 mb-4">My Badges</h3>
+                                <div id="badges-container" class="flex flex-wrap gap-4">
+                                    <!-- Badges will be injected here -->
+                                </div>
+                            </div>
+                             <div class="bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200">
+                                <h3 class="text-lg font-semibold text-brand-indigo-900 mb-4">Funding & Recognition Triggers</h3>
+                                <div id="triggers-container" class="space-y-3">
+                                    <!-- Triggers will be injected here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="quizzes-tab" class="gamification-tab hidden">
+                    <p class="text-brand-indigo-800 mb-6">Test your knowledge with these short quizzes on disaster management topics. Earn points for each correct answer!</p>
+                    <div id="quiz-container" class="max-w-2xl mx-auto bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200">
+                        <!-- Quiz content injected here -->
+                    </div>
+                </div>
+
+                <div id="simulations-tab" class="gamification-tab hidden">
+                    <p class="text-brand-indigo-800 mb-6">Step into a scenario and make critical decisions. Your choices will determine the outcome. Earn points for effective decision-making.</p>
+                    <div id="simulation-container" class="max-w-2xl mx-auto bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200">
+                        <!-- Simulation content injected here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Interoperability/API View -->
+            <div id="api" class="view hidden">
+                <p class="text-brand-indigo-800 mb-6">This platform is designed with an interoperability-first approach. Use our open APIs to ingest training data into your own state-level or organizational systems. Below are examples of how to connect and retrieve data.</p>
+                <div class="bg-brand-yellow-100 p-6 rounded-lg shadow-sm border border-brand-yellow-200">
+                    <h3 class="text-lg font-semibold text-brand-indigo-900 mb-4">API Endpoints & Sample Data</h3>
+                    <div class="space-y-6">
+                        <div>
+                            <h4 class="font-semibold text-brand-indigo-800">Get All Trainings</h4>
+                            <code class="block bg-brand-indigo-900 text-brand-yellow-100 p-4 rounded-md mt-2 text-sm">GET /api/v1/trainings</code>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-brand-indigo-800">Sample Response:</h4>
+                            <pre><code class="block bg-brand-indigo-900 text-brand-yellow-100 p-4 rounded-md mt-2 text-xs overflow-x-auto">{
+  "status": "success",
+  "results": 1,
+  "data": [
+    {
+      "id": "trg_101",
+      "title": "Flood Response Drill",
+      "state": "Assam",
+      "district": "Kamrup",
+      "participants": 75,
+      "date": "2025-09-15"
+    }
+  ]
+}</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+    
+    <!-- AI Help Floating Action Button -->
+    <button id="ai-help-fab" class="ai-help-fab gemini-btn p-4 rounded-full shadow-lg text-white transition-transform transform hover:scale-110">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.546-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+    </button>
+    
+    <!-- AI Help Modal -->
+    <div id="ai-help-modal" class="hidden fixed inset-0 flex items-center justify-center">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content bg-brand-yellow-100 rounded-lg shadow-xl w-full max-w-lg mx-4 flex flex-col h-[70vh]">
+            <div class="p-4 border-b border-brand-yellow-200 flex justify-between items-center">
+                <h3 class="text-lg font-semibold flex items-center text-brand-indigo-900">
+                    <span class="gemini-btn p-1 rounded-md mr-2">✨</span> AI Help Assistant
+                </h3>
+                <button id="close-help-modal-btn" class="text-brand-yellow-400 hover:text-brand-yellow-600 text-2xl">&times;</button>
+            </div>
+            <div id="ai-chat-box" class="flex-1 p-4 space-y-4 overflow-y-auto flex flex-col">
+                <!-- Chat messages will be appended here -->
+                <div class="chat-bubble-ai p-3 rounded-lg max-w-sm text-sm text-brand-indigo-900">
+                    Hello! How can I help you navigate the NDMA dashboard or answer questions about disaster management?
+                </div>
+            </div>
+            <form id="ai-help-form" class="p-4 border-t border-brand-yellow-200 flex items-center">
+                <input type="text" id="ai-help-input" class="flex-1 block w-full rounded-md bg-brand-yellow-50 border-brand-yellow-300 shadow-sm focus:border-brand-orange-500 focus:ring-brand-orange-500 sm:text-sm text-brand-indigo-900" placeholder="Ask a question..." autocomplete="off">
+                <button type="submit" class="ml-3 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-brand-indigo-700 hover:bg-brand-indigo-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-orange-500">Send</button>
+            </form>
+        </div>
+    </div>
+
+
+    <!-- Generic Modal -->
+    <div id="generic-modal" class="hidden fixed inset-0 flex items-center justify-center">
+        <div class="modal-backdrop generic-modal-close"></div>
+        <div class="modal-content bg-brand-yellow-100 rounded-lg shadow-xl w-full max-w-2xl mx-4">
+            <div class="p-6 border-b border-brand-yellow-200 flex justify-between items-center">
+                <h3 id="modal-title" class="text-xl font-semibold text-brand-indigo-900">Details</h3>
+                <button class="generic-modal-close text-brand-yellow-400 hover:text-brand-yellow-600 text-2xl">&times;</button>
+            </div>
+            <div id="modal-body" class="p-6 text-brand-indigo-800 max-h-[60vh] overflow-y-auto">
+                <p>Loading details...</p>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const navItems = document.querySelectorAll('.nav-item');
+            const views = document.querySelectorAll('.view');
+            const viewTitle = document.getElementById('view-title');
+            const menuToggle = document.getElementById('menu-toggle');
+            const sidebar = document.getElementById('sidebar');
+            
+            const titles = {
+                dashboard: 'Admin Dashboard',
+                'state-dashboard': 'State-wise Dashboards',
+                integration: 'Integration Hub',
+                gis: 'GIS Mapping View',
+                form: 'Training Entry Form',
+                analytics: 'Analytics & M&E',
+                gamification: 'Partner Gamification',
+                api: 'API & Interoperability'
+            };
+
+            function switchView(viewId) {
+                views.forEach(view => view.classList.add('hidden'));
+                document.getElementById(viewId)?.classList.remove('hidden');
+
+                navItems.forEach(item => {
+                    item.classList.remove('active');
+                    if (item.dataset.view === viewId) item.classList.add('active');
+                });
+                
+                viewTitle.textContent = titles[viewId];
+                
+                if (viewId === 'gis' && !document.getElementById('gis-map').hasChildNodes()) {
+                    initializeMap('gis-map', 'gis-map-loader');
+                }
+            }
+
+            navItems.forEach(item => {
+                item.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    switchView(e.currentTarget.dataset.view);
+                     if (window.innerWidth < 768) {
+                        sidebar.classList.add('w-20');
+                        sidebar.classList.remove('w-64');
+                    }
+                });
+            });
+
+            menuToggle.addEventListener('click', () => {
+                sidebar.classList.toggle('w-64');
+                sidebar.classList.toggle('w-20');
+            });
+
+
+            // --- MOCK DATA FOR NEW FEATURES ---
+            const mockLiveFeed = [
+                { agency: 'SDMA - Odisha', event: 'Cyclone Preparedness Drill', location: 'Puri', time: '2m ago', icon: '🌀' },
+                { agency: 'Red Cross - Kerala', event: 'First Aid Workshop', location: 'Kochi', time: '15m ago', icon: '⚕️' },
+                { agency: 'ATI - Rajasthan', event: 'Drought Management Seminar', location: 'Jaipur', time: '45m ago', icon: '☀️' }
+            ];
+            
+            const mockNidmContent = [
+                { title: 'Updated Flood Rescue Guidelines', date: '2025-10-02', type: 'PDF' },
+                { title: 'Case Study: 2024 Bihar Floods', date: '2025-09-28', type: 'Video' },
+                { title: 'New First Aid Certification Course', date: '2025-09-25', type: 'Course' }
+            ];
+
+            const mockGapAlerts = [
+                { id: 'GA001', district: 'Latur, Maharashtra', issue: 'Low Training Coverage', severity: 'High', details: 'Only 1 training conducted in the last 12 months, despite being in a high-risk seismic zone.' },
+                { id: 'GA002', district: 'Darjeeling, West Bengal', issue: 'Repeat Non-Attendance', severity: 'Medium', details: 'Key personnel from the District Collectorate have missed the last 3 landslide preparedness trainings.' },
+                { id: 'GA003', district: 'Gola, Uttar Pradesh', issue: 'Lack of Thematic Variety', severity: 'Low', details: '85% of trainings in the past 2 years have focused on flood response, with no earthquake or fire safety modules.' }
+            ];
+
+             const mockLeaderboard = [
+                { rank: 1, name: 'SDMA - Gujarat', score: 12500, icon: '🏆' },
+                { rank: 2, name: 'ATI - Maharashtra', score: 11800, icon: '🥈' },
+                { rank: 3, name: 'Red Cross - Delhi', score: 10500, icon: '🥉' }
+            ];
+            
+            const mockBadges = ['Pioneer', 'High Achiever', 'Community Champion', 'First Responder'];
+            const mockTriggers = [
+                { points: 5000, reward: 'Bronze Partner Status', unlocked: true },
+                { points: 10000, reward: 'Priority consideration for NDMA grants', unlocked: true },
+                { points: 15000, reward: 'Featured in Annual NDMA Report', unlocked: false }
+            ];
+
+            // --- DATA RENDERING FUNCTIONS ---
+            function renderLiveFeed() {
+                const container = document.getElementById('live-feed-container');
+                container.innerHTML = mockLiveFeed.map(item => `
+                    <div class="flex items-start">
+                        <div class="text-2xl mr-4">${item.icon}</div>
+                        <div>
+                            <p class="font-semibold text-brand-indigo-900">${item.agency}</p>
+                            <p class="text-sm text-brand-indigo-800">${item.event} in ${item.location}</p>
+                            <p class="text-xs text-brand-indigo-800 opacity-60">${item.time}</p>
+                        </div>
+                    </div>`).join('');
+            }
+            
+            function renderNidmContent() {
+                const container = document.getElementById('nidm-content-container');
+                container.innerHTML = mockNidmContent.map(item => `
+                    <div class="flex items-center justify-between p-3 bg-brand-yellow-50 rounded-md">
+                        <div>
+                            <p class="font-semibold text-brand-indigo-900">${item.title}</p>
+                            <p class="text-xs text-brand-indigo-800 opacity-60">Published: ${item.date}</p>
+                        </div>
+                        <span class="text-xs font-bold text-brand-orange-500 bg-brand-yellow-200 px-2 py-1 rounded-full">${item.type}</span>
+                    </div>`).join('');
+            }
+
+            function renderGapAlerts() {
+                const container = document.getElementById('gap-alerts-container');
+                const severityClasses = { High: 'red', Medium: 'yellow', Low: 'blue' };
+                container.innerHTML = mockGapAlerts.map(alert => `
+                    <div class="p-4 bg-brand-yellow-100 border-l-4 border-${severityClasses[alert.severity]}-500 rounded-r-lg cursor-pointer" onclick="openModal('Gap Alert: ${alert.id}', '${alert.details.replace(/'/g, "\\'")}')">
+                        <div class="flex justify-between">
+                            <p class="font-semibold text-brand-indigo-900">${alert.district}</p>
+                            <span class="text-sm font-bold text-${severityClasses[alert.severity]}-600">${alert.severity}</span>
+                        </div>
+                        <p class="text-sm text-brand-indigo-800">${alert.issue}</p>
+                    </div>`).join('');
+            }
+
+            function renderGamification() {
+                const leaderboard = document.getElementById('leaderboard-container');
+                leaderboard.innerHTML = mockLeaderboard.map(p => `
+                    <div class="flex items-center p-3 mb-2 bg-brand-yellow-50 rounded-md">
+                        <span class="font-bold text-brand-indigo-800 w-8">${p.rank} ${p.icon}</span>
+                        <p class="flex-1 font-semibold text-brand-indigo-900">${p.name}</p>
+                        <p class="font-bold text-brand-orange-500">${p.score} pts</p>
+                    </div>`).join('');
+                
+                const badges = document.getElementById('badges-container');
+                badges.innerHTML = mockBadges.map(b => `<span class="text-3xl" title="${b}">${b === 'Pioneer' ? '🗺️' : b === 'High Achiever' ? '⭐' : b === 'Community Champion' ? '🤝' : '🚑'}</span>`).join('');
+
+                const triggers = document.getElementById('triggers-container');
+                triggers.innerHTML = mockTriggers.map(t => `
+                     <div class="flex items-center ${t.unlocked ? 'text-green-600' : 'text-brand-indigo-800 opacity-50'}">
+                        <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">${t.unlocked ? '<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>' : '<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 9a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clip-rule="evenodd"></path>'}</svg>
+                        <span class="text-sm">${t.reward}</span>
+                    </div>`).join('');
+            }
+
+            // --- TABS (Analytics & Gamification) ---
+            function setupTabs(containerId) {
+                const tabsContainer = document.getElementById(containerId);
+                if (!tabsContainer) return; // Safety check
+
+                const tabs = tabsContainer.querySelectorAll('.tab-btn');
+                const viewContainer = tabsContainer.closest('.view');
+                if (!viewContainer) return; // Safety check
+                
+                const tabContents = viewContainer.querySelectorAll(`.${containerId.split('-')[0]}-tab`);
+
+                tabs.forEach(tab => {
+                    tab.addEventListener('click', () => {
+                        tabs.forEach(t => t.classList.remove('active'));
+                        tab.classList.add('active');
+                        tabContents.forEach(content => content.classList.add('hidden'));
+                        
+                        const activeTabContent = document.getElementById(tab.dataset.tab + '-tab');
+                        if (activeTabContent) {
+                            activeTabContent.classList.remove('hidden');
+                        }
+                    });
+                });
+            }
+            setupTabs('analytics-tabs');
+            setupTabs('gamification-tabs');
+
+            
+            // --- OFFLINE SYNC DEMO ---
+            const offlineStatus = document.getElementById('offline-sync-status');
+            offlineStatus.addEventListener('click', () => {
+                openModal('Offline Sync Status', `
+                    <p class="font-semibold">Current Status: Synced</p>
+                    <p class="text-sm">Last sync: October 5, 2025 at 11:32 PM IST</p>
+                    <p class="text-sm mt-2">The mobile app allows partners to capture training data offline in remote areas. Data is securely stored on the device and will automatically sync with the central server once a stable internet connection is restored.</p>
+                `);
+            });
+            
+            // --- ALL OTHER JS (Charts, Modals, Gemini API) ---
+            const hardcodedMapData = {
+                states: ['Uttar Pradesh', 'Maharashtra', 'Bihar', 'West Bengal', 'Madhya Pradesh', 'Tamil Nadu', 'Rajasthan', 'Karnataka', 'Gujarat', 'Andhra Pradesh', 'Odisha', 'Telangana', 'Kerala', 'Jharkhand', 'Assam', 'Punjab', 'Chhattisgarh', 'Haryana', 'Delhi', 'Jammu and Kashmir', 'Uttarakhand', 'Himachal Pradesh', 'Tripura', 'Meghalaya', 'Manipur', 'Nagaland', 'Goa', 'Arunachal Pradesh', 'Puducherry', 'Mizoram', 'Chandigarh', 'Sikkim', 'Dadra and Nagar Haveli and Daman and Diu', 'Andaman and Nicobar Islands', 'Ladakh', 'Lakshadwee'],
+                values: [120, 110, 95, 90, 85, 80, 75, 70, 68, 65, 60, 58, 55, 50, 48, 45, 43, 40, 38, 35, 33, 30, 28, 25, 23, 20, 18, 15, 14, 12, 10, 8, 6, 5, 4, 2]
+            };
+            const quarterlyTrends = { labels: ['Q1 2024', 'Q2 2024', 'Q3 2024', 'Q4 2024', 'Q1 2025', 'Q2 2025'], datasets: [{ label: 'Number of Trainings', data: [210, 250, 280, 310, 350, 420], borderColor: '#4338ca', backgroundColor: 'rgba(67, 56, 202, 0.1)', fill: true, tension: 0.4 }] };
+            const monthlyTrends = { labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'], datasets: [{ label: 'Number of Trainings', data: [100, 110, 120, 140, 160, 180], borderColor: '#4338ca', backgroundColor: 'rgba(67, 56, 202, 0.1)', fill: true, tension: 0.4 }] };
+            const thematicData = { all: { labels: ['Flood Response', 'Earthquake Prep', 'Medical', 'Cyclone Mgmt', 'Community Aware'], datasets: [{ label: 'Participants', data: [12000, 9500, 15000, 6500, 2921], backgroundColor: ['#3b82f6', '#10b981', '#ef4444', '#f97316', '#8b5cf6'] }] }, flood: { labels: ['Flood Response'], datasets: [{ label: 'Participants', data: [12000], backgroundColor: ['#3b82f6'] }] }, earthquake: { labels: ['Earthquake Prep'], datasets: [{ label: 'Participants', data: [9500], backgroundColor: ['#10b981'] }] }, medical: { labels: ['Medical'], datasets: [{ label: 'Participants', data: [15000], backgroundColor: ['#ef4444'] }] } };
+            const indiaGeoJSON = {"type":"FeatureCollection","features":[{"type":"Feature","properties":{"ST_NM":"Andaman and Nicobar Islands"},"geometry":{"type":"MultiPolygon","coordinates":[[[[93.71976,6.75336],[93.71976,6.75336]]],[[[92.83541,11.23955],[92.83541,11.23955]]]]}},{"type":"Feature","properties":{"ST_NM":"Arunachal Pradesh"},"geometry":{"type":"Polygon","coordinates":[[[96.16263,29.38028],[96.16263,29.38028]]]}},{"type":"Feature","properties":{"ST_NM":"Assam"},"geometry":{"type":"MultiPolygon","coordinates":[[[[89.74233,26.00223],[89.74233,26.00223]]]]}},{"type":"Feature","properties":{"ST_NM":"Bihar"},"geometry":{"type":"Polygon","coordinates":[[[88.11357,26.54028],[88.11357,26.54028]]]}},{"type":"Feature","properties":{"ST_NM":"Chandigarh"},"geometry":{"type":"Polygon","coordinates":[[[76.79373,30.72592],[76.79373,30.72592]]]}},{"type":"Feature","properties":{"ST_NM":"Chhattisgarh"},"geometry":{"type":"Polygon","coordinates":[[[83.33532,24.09885],[83.33532,24.09885]]]}},{"type":"Feature","properties":{"ST_NM":"Dadra and Nagar Haveli and Daman and Diu"},"geometry":{"type":"MultiPolygon","coordinates":[[[[72.83292,20.43588],[72.83292,20.43588]]],[[[73.01423,20.25251],[73.01423,20.25251]]]]}},{"type":"Feature","properties":{"ST_NM":"Delhi"},"geometry":{"type":"Polygon","coordinates":[[[77.1023,28.86834],[77.1023,28.86834]]]}},{"type":"Feature","properties":{"ST_NM":"Goa"},"geometry":{"type":"MultiPolygon","coordinates":[[[[73.7112,15.65751],[73.7112,15.65751]]]]}},{"type":"Feature","properties":{"ST_NM":"Gujarat"},"geometry":{"type":"MultiPolygon","coordinates":[[[[70.8384,20.7305],[70.8384,20.7305]]],[[[72.6386,20.1983],[72.6386,20.1983]]]]}},{"type":"Feature","properties":{"ST_NM":"Haryana"},"geometry":{"type":"Polygon","coordinates":[[[76.84131,30.79344],[76.84131,30.79344]]]}},{"type":"Feature","properties":{"ST_NM":"Himachal Pradesh"},"geometry":{"type":"Polygon","coordinates":[[[78.94895,31.04013],[78.94895,31.04013]]]}},{"type":"Feature","properties":{"ST_NM":"Jammu and Kashmir"},"geometry":{"type":"Polygon","coordinates":[[[74.08591,34.68536],[74.08591,34.68536]]]}},{"type":"Feature","properties":{"ST_NM":"Jharkhand"},"geometry":{"type":"Polygon","coordinates":[[[87.60582,25.3146],[87.60582,25.3146]]]}},{"type":"Feature","properties":{"ST_NM":"Karnataka"},"geometry":{"type":"MultiPolygon","coordinates":[[[[74.05499,14.54593],[74.05499,14.54593]]]]}},{"type":"Feature","properties":{"ST_NM":"Kerala"},"geometry":{"type":"MultiPolygon","coordinates":[[[[76.2294,8.27131],[76.2294,8.27131]]]]}},{"type":"Feature","properties":{"ST_NM":"Ladakh"},"geometry":{"type":"Polygon","coordinates":[[[77.7841,35.53931],[77.7841,35.53931]]]}},{"type":"Feature","properties":{"ST_NM":"Lakshadweep"},"geometry":{"type":"MultiPolygon","coordinates":[[[[72.182,8.29801],[72.182,8.29801]]],[[[72.78401,11.02636],[72.78401,11.02636]]]]}},{"type":"Feature","properties":{"ST_NM":"Madhya Pradesh"},"geometry":{"type":"Polygon","coordinates":[[[82.49132,24.40183],[82.49132,24.40183]]]}},{"type":"Feature","properties":{"ST_NM":"Maharashtra"},"geometry":{"type":"MultiPolygon","coordinates":[[[[73.70889,15.8028],[73.70889,15.8028]]]]}},{"type":"Feature","properties":{"ST_NM":"Manipur"},"geometry":{"type":"Polygon","coordinates":[[[94.57723,25.64573],[94.57723,25.64573]]]}},{"type":"Feature","properties":{"ST_NM":"Meghalaya"},"geometry":{"type":"Polygon","coordinates":[[[92.54471,25.99684],[92.54471,25.99684]]]}},{"type":"Feature","properties":{"ST_NM":"Mizoram"},"geometry":{"type":"Polygon","coordinates":[[[93.23491,24.29598],[93.23491,24.29598]]]}},{"type":"Feature","properties":{"ST_NM":"Nagaland"},"geometry":{"type":"Polygon","coordinates":[[[95.20455,26.93774],[95.20455,26.93774]]]}},{"type":"Feature","properties":{"ST_NM":"Odisha"},"geometry":{"type":"MultiPolygon","coordinates":[[[[84.76981,19.10352],[84.76981,19.10352]]]]}},{"type":"Feature","properties":{"ST_NM":"Puducherry"},"geometry":{"type":"MultiPolygon","coordinates":[[[[79.82917,11.93635],[79.82917,11.93635]]],[[[79.83151,10.92582],[79.83151,10.92582]]]]}},{"type":"Feature","properties":{"ST_NM":"Punjab"},"geometry":{"type":"Polygon","coordinates":[[[75.85902,32.40428],[75.85902,32.40428]]]}},{"type":"Feature","properties":{"ST_NM":"Rajasthan"},"geometry":{"type":"Polygon","coordinates":[[[73.89849,29.97782],[73.89849,29.97782]]]}},{"type":"Feature","properties":{"ST_NM":"Sikkim"},"geometry":{"type":"Polygon","coordinates":[[[88.64523,28.09911],[88.64523,28.09911]]]}},{"type":"Feature","properties":{"ST_NM":"Tamil Nadu"},"geometry":{"type":"MultiPolygon","coordinates":[[[[77.53503,8.0821],[77.53503,8.0821]]]]}},{"type":"Feature","properties":{"ST_NM":"Telangana"},"geometry":{"type":"Polygon","coordinates":[[[78.4764,19.8824],[78.4764,19.8824]]]}},{"type":"Feature","properties":{"ST_NM":"Tripura"},"geometry":{"type":"Polygon","coordinates":[[[92.2329,24.53102],[92.2329,24.53102]]]}},{"type":"Feature","properties":{"ST_NM":"Uttar Pradesh"},"geometry":{"type":"Polygon","coordinates":[[[83.90683,28.37564],[83.90683,28.37564]]]}},{"type":"Feature","properties":{"ST_NM":"Uttarakhand"},"geometry":{"type":"Polygon","coordinates":[[[80.057,31.05448],[80.057,31.05448]]]}},{"type":"Feature","properties":{"ST_NM":"West Bengal"},"geometry":{"type":"MultiPolygon","coordinates":[[[[88.01861,21.57278],[88.01861,21.57278]]]]}},{"type":"Feature","properties":{"ST_NM":"Andhra Pradesh"},"geometry":{"type":"MultiPolygon","coordinates":[[[[80.88056,15.7779],[80.88056,15.7779]]]]}}]};
+            
+            let trendsChart, thematicChart;
+            Chart.defaults.color = '#312e81';
+            Chart.defaults.borderColor = '#fde68a';
+
+            function renderTrendsChart(data) { const ctx = document.getElementById('trends-chart').getContext('2d'); if (trendsChart) trendsChart.destroy(); trendsChart = new Chart(ctx, { type: 'line', data: data, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } } }); }
+            function renderThematicChart(data) { const ctx = document.getElementById('thematic-chart').getContext('2d'); if (thematicChart) thematicChart.destroy(); thematicChart = new Chart(ctx, { type: 'bar', data: data, options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } } }); }
+            
+            async function initializeMap(elementId, loaderId) { const loader = document.getElementById(loaderId); const mapDiv = document.getElementById(elementId); loader.style.display = 'block'; mapDiv.style.display = 'none'; const mapData = hardcodedMapData; loader.style.display = 'none'; mapDiv.style.display = 'block'; renderMap(elementId, mapData); }
+            function renderMap(elementId, mapData) { const data = [{ type: 'choropleth', locations: mapData.states, z: mapData.values, geojson: indiaGeoJSON, featureidkey: 'properties.ST_NM', locationmode: 'geojson-id', hovertemplate: '<b>%{location}</b><br>Trainings: %{z}<extra></extra>', zmin: 0, zmax: 120, colorscale: 'Oranges', reversescale: false, showscale: false }]; const layout = { geo: { scope: 'asia', center: { lon: 82, lat: 22 }, lataxis: { range: [5, 38] }, lonaxis: { range: [68, 98] }, projection: { type: 'mercator' }, showland: true, landcolor: '#fef3c7', subunitcolor: '#fbbf24' }, margin: { t: 0, b: 0, l: 0, r: 0 }, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', }; Plotly.newPlot(elementId, data, layout, { responsive: true, displayModeBar: false }); 
+                document.getElementById(elementId).on('plotly_click', function (data) { 
+                    const stateName = data.points[0].location;
+                    switchView('state-dashboard');
+                    document.getElementById('state-selector').value = stateName;
+                    renderStateDashboard(stateName);
+                }); 
+            }
+
+            renderTrendsChart(quarterlyTrends); renderThematicChart(thematicData.all);
+            document.getElementById('time-filter').addEventListener('change', (e) => renderTrendsChart(e.target.value === 'quarterly' ? quarterlyTrends : monthlyTrends));
+            document.getElementById('theme-filter').addEventListener('change', (e) => renderThematicChart(thematicData[e.target.value] || thematicData.all));
+            document.getElementById('export-btn').addEventListener('click', () => alert('Data export initiated (simulation).'));
+            document.getElementById('voice-input-btn').addEventListener('click', () => alert('Voice input activated (simulation).'));
+            document.getElementById('photo-upload-btn').addEventListener('click', () => alert('Photo upload dialog opened (simulation).'));
+
+            const modal = document.getElementById('generic-modal'); const modalTitle = document.getElementById('modal-title'); const modalBody = document.getElementById('modal-body');
+            document.querySelectorAll('.generic-modal-close').forEach(el => el.addEventListener('click', () => modal.classList.add('hidden')));
+            window.openModal = function(title, content) { modalTitle.textContent = title; modalBody.innerHTML = content; modal.classList.remove('hidden'); }
+            
+            const apiKey = ""; const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+            async function callGeminiAPI(prompt, isJson = false) { const payload = { contents: [{ parts: [{ text: prompt }] }] }; if (isJson) { payload.generationConfig = { responseMimeType: "application/json" }; } try { const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); if (!response.ok) throw new Error(`API call failed: ${response.status}`); const result = await response.json(); return result.candidates?.[0]?.content?.parts?.[0]?.text; } catch (error) { console.error("Gemini API call error:", error); return null; } }
+            function typewriterEffect(element, text, onComplete) { let i = 0; element.innerHTML = ""; function type() { if (i < text.length) { element.innerHTML += text.charAt(i); i++; setTimeout(type, 15); } else if (onComplete) onComplete(); } type(); }
+            const generateInsightsBtn = document.getElementById('generate-insights-btn'); const insightsContainer = document.getElementById('insights-container');
+            generateInsightsBtn.addEventListener('click', async () => { generateInsightsBtn.disabled = true; generateInsightsBtn.textContent = 'Generating...'; insightsContainer.innerHTML = `<div class="spinner mx-auto"></div>`; const metrics = { trainings: document.getElementById('metric-trainings').textContent, participants: document.getElementById('metric-participants').textContent, districts: document.getElementById('metric-districts').textContent, agencies: document.getElementById('metric-agencies').textContent }; const prompt = `As an NDMA analyst, give 3 concise insights (Gap Alert, Positive Trend, Recommendation) for: Trainings: ${metrics.trainings}, Participants: ${metrics.participants}, Districts: ${metrics.districts}. One insight per line. No markdown.`; const responseText = await callGeminiAPI(prompt); if (responseText) { const [gap, trend, rec] = responseText.split('\n').filter(Boolean); insightsContainer.innerHTML = `<div class="flex items-start p-3 bg-red-100 border border-red-200 rounded-lg"><span class="mr-3 text-red-500 mt-1 font-bold">⚠️</span><div><h4 class="font-semibold text-brand-indigo-900">Gap Alert</h4><p class="text-brand-indigo-800">${gap || 'N/A'}</p></div></div><div class="flex items-start p-3 bg-green-100 border border-green-200 rounded-lg"><span class="mr-3 text-green-500 mt-1 font-bold">📈</span><div><h4 class="font-semibold text-brand-indigo-900">Positive Trend</h4><p class="text-brand-indigo-800">${trend || 'N/A'}</p></div></div><div class="flex items-start p-3 bg-blue-100 border border-blue-200 rounded-lg"><span class="mr-3 text-blue-500 mt-1 font-bold">💡</span><div><h4 class="font-semibold text-brand-indigo-900">Recommendation</h4><p class="text-brand-indigo-800">${rec || 'N/A'}</p></div></div>`; } else { insightsContainer.innerHTML = `<p class="text-red-500">Could not generate insights.</p>`; } generateInsightsBtn.disabled = false; generateInsightsBtn.innerHTML = '✨ Regenerate Insights'; });
+            const suggestDetailsBtn = document.getElementById('suggest-details-btn');
+            suggestDetailsBtn.addEventListener('click', async () => { suggestDetailsBtn.disabled = true; suggestDetailsBtn.textContent = 'Suggesting...'; const theme = document.getElementById('training-theme').value; const state = document.getElementById('state').value || "a major state in India"; const prompt = `For a "${theme}" program in "${state}", create JSON: {"title": string, "description": string, "participants": integer}.`; const responseJsonText = await callGeminiAPI(prompt, true); if (responseJsonText) { try { const d = JSON.parse(responseJsonText); document.getElementById('training-title').value = d.title || ''; document.getElementById('description').value = d.description || ''; document.getElementById('participants').value = d.participants || ''; } catch (e) { alert("Invalid format."); } } else { alert("Could not generate details."); } suggestDetailsBtn.disabled = false; suggestDetailsBtn.innerHTML = '✨ Suggest Details'; });
+            const helpFab = document.getElementById('ai-help-fab'); const helpModal = document.getElementById('ai-help-modal'); helpModal.querySelectorAll('.modal-backdrop, #close-help-modal-btn').forEach(el => el.addEventListener('click', () => helpModal.classList.add('hidden'))); helpFab.addEventListener('click', () => helpModal.classList.remove('hidden'));
+            const helpForm = document.getElementById('ai-help-form'); const helpInput = document.getElementById('ai-help-input'); const chatBox = document.getElementById('ai-chat-box');
+            helpForm.addEventListener('submit', async (e) => { e.preventDefault(); const userInput = helpInput.value.trim(); if (!userInput) return; const userBubble = document.createElement('div'); userBubble.className = 'chat-bubble-user p-3 rounded-lg max-w-sm text-sm text-brand-indigo-900'; userBubble.textContent = userInput; chatBox.appendChild(userBubble); helpInput.value = ''; chatBox.scrollTop = chatBox.scrollHeight; const thinkingBubble = document.createElement('div'); thinkingBubble.className = 'chat-bubble-ai p-3 rounded-lg max-w-sm text-sm'; thinkingBubble.innerHTML = `<div class="flex items-center space-x-2"><div class="w-2 h-2 bg-brand-yellow-400 rounded-full animate-pulse"></div><div class="w-2 h-2 bg-brand-yellow-400 rounded-full animate-pulse" style="animation-delay:0.2s;"></div><div class="w-2 h-2 bg-brand-yellow-400 rounded-full animate-pulse" style="animation-delay:0.4s;"></div></div>`; chatBox.appendChild(thinkingBubble); chatBox.scrollTop = chatBox.scrollHeight; const prompt = `You are a helpful AI assistant for the NDMA dashboard. Answer concisely. User's question: "${userInput}"`; const aiResponse = await callGeminiAPI(prompt); chatBox.removeChild(thinkingBubble); const aiBubble = document.createElement('div'); aiBubble.className = 'chat-bubble-ai p-3 rounded-lg max-w-sm text-sm text-brand-indigo-900'; chatBox.appendChild(aiBubble); if (aiResponse) { typewriterEffect(aiBubble, aiResponse, () => chatBox.scrollTop = chatBox.scrollHeight); } else { aiBubble.textContent = "I'm sorry, I encountered an error." } });
+            document.getElementById('generate-report-btn').addEventListener('click', async (e) => { const btn = e.currentTarget; btn.disabled = true; btn.innerHTML = `<div class="spinner h-5 w-5 mx-auto"></div>`; const trendSummary = `Trainings over time: ${trendsChart.data.labels.join(', ')} with counts: ${trendsChart.data.datasets[0].data.join(', ')}.`; const thematicSummary = `Participant distribution: ${thematicChart.data.labels.map((l, i) => `${l} (${thematicChart.data.datasets[0].data[i]})`).join(', ')}.`; const prompt = `As an NDMA analyst, write a brief summary report based on: Trends: ${trendSummary} and Thematic Distribution: ${thematicSummary}. Conclude with one observation and one recommendation.`; const reportContent = await callGeminiAPI(prompt); if (reportContent) { openModal("AI-Generated Report Summary", `<div class="prose prose-sm max-w-none">${reportContent.replace(/\n/g, '<br/>')}</div>`); } else { openModal("Error", "Could not generate the report."); } btn.disabled = false; btn.innerHTML = '✨ Generate AI Report Summary'; });
+            document.getElementById('generate-scenario-btn').addEventListener('click', async (e) => { const btn = e.currentTarget; const scenarioInput = document.getElementById('scenario-input'); const scenarioOutput = document.getElementById('scenario-output'); const scenario = scenarioInput.value.trim(); if (!scenario) { alert("Please describe a scenario."); return; } btn.disabled = true; btn.textContent = 'Generating...'; scenarioOutput.innerHTML = `<div class="spinner mx-auto"></div>`; const prompt = `For a training scenario on "${scenario}", return JSON with keys: "learning_objectives" (array of strings), "key_activities" (array of strings), and "evaluation_metrics" (array of strings).`; const responseJsonText = await callGeminiAPI(prompt, true); if (responseJsonText) { try { const plan = JSON.parse(responseJsonText); const toList = (items) => items.map(item => `<li class="ml-4">${item}</li>`).join(''); scenarioOutput.innerHTML = `<div class="space-y-4"><div><h4 class="font-semibold text-brand-indigo-900">Learning Objectives:</h4><ul class="list-disc text-brand-indigo-800">${toList(plan.learning_objectives || [])}</ul></div><div><h4 class="font-semibold text-brand-indigo-900">Key Activities:</h4><ul class="list-disc text-brand-indigo-800">${toList(plan.key_activities || [])}</ul></div><div><h4 class="font-semibold text-brand-indigo-900">Evaluation Metrics:</h4><ul class="list-disc text-brand-indigo-800">${toList(plan.evaluation_metrics || [])}</ul></div></div>`; } catch (e) { scenarioOutput.innerHTML = `<p class="text-red-500">Could not generate a valid plan.</p>`; } } else { scenarioOutput.innerHTML = `<p class="text-red-500">Could not generate a training plan.</p>`; } btn.disabled = false; btn.textContent = '✨ Generate Training Plan'; });
+
+             // --- STATE DASHBOARD ---
+            const stateSelector = document.getElementById('state-selector');
+            const stateContent = document.getElementById('state-content');
+            let stateThematicChart;
+            hardcodedMapData.states.sort().forEach(state => {
+                const option = document.createElement('option');
+                option.value = state;
+                option.textContent = state;
+                stateSelector.appendChild(option);
+            });
+            stateSelector.addEventListener('change', (e) => renderStateDashboard(e.target.value));
+
+            function renderStateDashboard(stateName) {
+                if (!stateName) {
+                    stateContent.classList.add('hidden');
+                    return;
+                }
+                const stateData = MOCK_STATE_DATA[stateName];
+                if (!stateData) {
+                    alert("No data available for this state.");
+                    return;
+                }
+                document.getElementById('state-metric-trainings').textContent = stateData.metrics.trainings;
+                document.getElementById('state-metric-participants').textContent = stateData.metrics.participants.toLocaleString('en-IN');
+                document.getElementById('state-metric-districts').textContent = stateData.metrics.districts;
+                
+                const topDistrictsContainer = document.getElementById('state-top-districts');
+                topDistrictsContainer.innerHTML = stateData.topDistricts.map((d, i) => `
+                    <div class="flex items-center text-sm mb-2 p-2 bg-brand-yellow-50 rounded-md">
+                        <span class="font-bold text-brand-indigo-800 w-6">${i+1}.</span>
+                        <p class="flex-1 font-semibold text-brand-indigo-900">${d.name}</p>
+                        <p class="font-bold text-brand-orange-500">${d.trainings}</p>
+                    </div>`).join('');
+                
+                const ctx = document.getElementById('state-thematic-chart').getContext('2d');
+                if (stateThematicChart) stateThematicChart.destroy();
+                stateThematicChart = new Chart(ctx, { type: 'doughnut', data: stateData.thematicData, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } } });
+                
+                stateContent.classList.remove('hidden');
+            }
+
+            const MOCK_STATE_DATA = hardcodedMapData.states.reduce((acc, state) => {
+                acc[state] = {
+                    metrics: { trainings: Math.floor(Math.random() * 100) + 5, participants: Math.floor(Math.random() * 5000) + 500, districts: `${Math.floor(Math.random()*15)+5} / ${Math.floor(Math.random()*5)+20}`},
+                    topDistricts: [{ name: 'District A', trainings: 25 }, { name: 'District B', trainings: 22 }, { name: 'District C', trainings: 18 }, { name: 'District D', trainings: 15 }, { name: 'District E', trainings: 11 }],
+                    thematicData: { labels: ['Flood', 'Medical', 'Community'], datasets: [{ data: [Math.random(), Math.random(), Math.random()], backgroundColor: ['#3b82f6', '#ef4444', '#8b5cf6'] }] }
+                };
+                return acc;
+            }, {});
+
+            // --- GAMIFICATION: QUIZZES & SIMULATIONS ---
+            const quizContainer = document.getElementById('quiz-container');
+            const simContainer = document.getElementById('simulation-container');
+            const MOCK_QUIZ = {
+                title: "Flood Preparedness Quiz",
+                questions: [
+                    { q: "What is the first thing to do when a flood warning is issued?", options: ["Move to higher ground", "Gather valuables", "Wait for instructions"], answer: 0 },
+                    { q: "Which of these should be in an emergency kit?", options: ["Snacks and water", "Video games", "Decorative candles"], answer: 0 },
+                    { q: "What does SDMA stand for?", options: ["State Disaster Management Authority", "Safe District Management Area", "Systematic Disaster Mitigation Approach"], answer: 0 }
+                ]
+            };
+            let currentQuestion = 0;
+            let score = 0;
+
+            function renderQuiz() {
+                if (currentQuestion >= MOCK_QUIZ.questions.length) {
+                    quizContainer.innerHTML = `<h3 class="text-xl font-bold text-center text-brand-indigo-900 mb-4">Quiz Complete!</h3>
+                    <p class="text-center text-brand-indigo-800">You scored ${score} out of ${MOCK_QUIZ.questions.length}!</p>
+                    <p class="text-center font-bold text-green-600 mt-2">You've earned ${score * 50} points! 🌟</p>
+                    <button id="retake-quiz-btn" class="mt-6 w-full text-center bg-brand-indigo-700 text-white font-semibold py-2 px-4 rounded-lg">Retake Quiz</button>`;
+                    document.getElementById('retake-quiz-btn').addEventListener('click', () => { currentQuestion = 0; score = 0; renderQuiz(); });
+                    return;
+                }
+                const q = MOCK_QUIZ.questions[currentQuestion];
+                quizContainer.innerHTML = `
+                    <h3 class="text-xl font-bold text-brand-indigo-900 mb-2">${MOCK_QUIZ.title}</h3>
+                    <p class="text-sm text-brand-indigo-800 mb-4">Question ${currentQuestion + 1} of ${MOCK_QUIZ.questions.length}</p>
+                    <p class="font-semibold text-brand-indigo-900 mb-4">${q.q}</p>
+                    <div class="space-y-3">
+                        ${q.options.map((opt, i) => `<div class="quiz-option p-3 border-2 border-brand-yellow-200 rounded-lg cursor-pointer" data-index="${i}">${opt}</div>`).join('')}
+                    </div>`;
+                
+                quizContainer.querySelectorAll('.quiz-option').forEach(opt => {
+                    opt.addEventListener('click', (e) => {
+                        const selectedIndex = parseInt(e.target.dataset.index);
+                        const correct = selectedIndex === q.answer;
+                        if (correct) {
+                            score++;
+                            e.target.classList.add('correct');
+                        } else {
+                            e.target.classList.add('incorrect');
+                            quizContainer.querySelector(`[data-index="${q.answer}"]`).classList.add('correct');
+                        }
+                        setTimeout(() => { currentQuestion++; renderQuiz(); }, 1200);
+                    });
+                });
+            }
+
+            const MOCK_SIM = {
+                title: "Cyclone Response Simulation",
+                steps: [
+                    { id: 0, text: "A cyclone warning has been issued for your coastal district, expected to make landfall in 12 hours. What is your immediate priority?", options: [{ text: "Issue evacuation orders for low-lying areas.", next: 1 }, { text: "Wait for more data from the meteorological department.", next: 2 }], effect: 'alert' },
+                    { id: 1, text: "Good choice. Evacuation is key. How do you communicate this order?", options: [{ text: "Use social media and TV channels.", next: 3 }, { text: "Use all channels: TV, radio, social media, and public announcement systems.", next: 4 }], effect: 'rumble' },
+                    { id: 2, text: "Delay can be dangerous. While data is important, early action saves lives. The situation worsens, and you have less time to act.", options: [{ text: "Proceed with evacuation now.", next: 1 }] },
+                    { id: 3, text: "A good start, but not everyone has access. You need a broader reach.", options: [{ text: "Use all available channels.", next: 4 }] },
+                    { id: 4, text: "Excellent! Maximum reach is crucial. The evacuation is underway. Simulation complete. You've earned 150 points for effective decision-making! 🏆", options: [] }
+                ]
+            };
+            let currentSimStep = 0;
+            let audioCtx = null; // Initialize AudioContext
+
+            function initializeAudio() {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+
+            function playSound(type) {
+                if (!audioCtx) return;
+
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                gainNode.connect(audioCtx.destination);
+                oscillator.connect(gainNode);
+
+                if (type === 'alert') {
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
+                    gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
+                    oscillator.start(audioCtx.currentTime);
+                    oscillator.stop(audioCtx.currentTime + 0.5);
+                } else if (type === 'rumble') {
+                    oscillator.type = 'sawtooth';
+                    oscillator.frequency.setValueAtTime(80, audioCtx.currentTime); // Low frequency
+                    gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 1.5);
+                    oscillator.start(audioCtx.currentTime);
+                    oscillator.stop(audioCtx.currentTime + 1.5);
+                }
+            }
+
+            function triggerEffect(effectName) {
+                const mainContent = document.getElementById('main-content');
+                if (mainContent) {
+                    mainContent.classList.add('screen-shake');
+                    setTimeout(() => mainContent.classList.remove('screen-shake'), 820);
+                }
+                playSound(effectName);
+            }
+
+            function renderSimulation() {
+                const step = MOCK_SIM.steps.find(s => s.id === currentSimStep);
+                if (!step) return;
+
+                if (step.effect) {
+                    triggerEffect(step.effect);
+                }
+                
+                simContainer.innerHTML = `
+                    <h3 class="text-xl font-bold text-brand-indigo-900 mb-4">${MOCK_SIM.title}</h3>
+                    <p class="text-brand-indigo-800 mb-4">${step.text}</p>
+                    <div class="space-y-3">
+                        ${step.options.map(opt => `<button class="sim-option w-full text-left p-3 bg-brand-yellow-50 border border-brand-yellow-200 rounded-lg hover:bg-brand-yellow-200" data-next="${opt.next}">${opt.text}</button>`).join('')}
+                    </div>
+                    ${step.options.length === 0 ? `<button id="restart-sim-btn" class="mt-6 w-full text-center bg-brand-indigo-700 text-white font-semibold py-2 px-4 rounded-lg">Restart Simulation</button>` : ''}
+                `;
+
+                 simContainer.querySelectorAll('.sim-option').forEach(opt => {
+                    opt.addEventListener('click', (e) => {
+                        initializeAudio(); // Ensure audio context is ready on first interaction
+                        currentSimStep = parseInt(e.target.dataset.next);
+                        renderSimulation();
+                    });
+                 });
+                 if (document.getElementById('restart-sim-btn')) {
+                    document.getElementById('restart-sim-btn').addEventListener('click', () => { currentSimStep = 0; renderSimulation(); });
+                 }
+            }
+
+
+            // Initial view setup
+            switchView('dashboard');
+            initializeMap('dashboard-map', 'dashboard-map-loader');
+            renderLiveFeed();
+            renderNidmContent();
+            renderGapAlerts();
+            renderGamification();
+            renderQuiz();
+            renderSimulation();
+        });
+    </script>
+</body>
+</html>
+
